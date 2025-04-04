@@ -1,0 +1,11 @@
+# Ignore node_modules folder (common in React Native projects)
+node_modules/
+
+# Ignore build artifacts
+build/
+
+# Ignore log files
+*.log
+
+# Ignore environment variable files
+.env
