@@ -1,21 +1,34 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 
 const App = () => {
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    const getUserName = async () => {
+      const storedName = await AsyncStorage.getItem('userName');
+      if (storedName) {
+        setUserName(storedName);
+      }
+    };
+    getUserName();
+  }, []);
+
   const handleCreateRide = () => {
-    router.push('/create_ride'); // Navigate to Create Ride screen
+    router.push('/Ride');
   };
 
   const handleJoinRide = () => {
-    router.push('/join_ride'); // Navigate to Join Ride screen
+    router.push('/Ride');
   };
 
   return (
     <View style={styles.container}>
-      {/* Header with 'hi' text */}
+      {/* Header with user's name */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>hi eashan</Text>
+        <Text style={styles.headerText}>hi {userName}</Text>
       </View>
 
       {/* Main Screen Content */}

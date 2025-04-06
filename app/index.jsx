@@ -8,12 +8,15 @@ import {
   Modal,
   TextInput,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import img1 from "@/assets/images/icon.png"
-import img2 from "@/assets/images/adaptive-icon.png"
-import img3 from '@/assets/images/react-logo.png'
-import img4 from '@/assets/images/splash-icon.png'
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
+import img1 from "../assets/images/icon.png";
+import img2 from "../assets/images/adaptive-icon.png";
+import img3 from '../assets/images/react-logo.png';
+import img4 from '../assets/images/splash-icon.png';
 
 const SplashScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
@@ -21,7 +24,16 @@ const SplashScreen = () => {
   const fadeAnim = useState(new Animated.Value(0))[0];
 
   useEffect(() => {
-    // Fade-in animation for the entire splash screen
+    // Check if a name is already stored
+    const checkName = async () => {
+      const storedName = await AsyncStorage.getItem('userName');
+      if (storedName) {
+        router.replace('/(tabs)/home');
+      }
+    };
+    checkName();
+
+    // Fade-in animation for splash screen
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 2000,
@@ -33,51 +45,40 @@ const SplashScreen = () => {
     setModalVisible(true);
   };
 
-const handleContinue = () => {
-    setModalVisible(false); // Close the modal
-    // Wait for the modal to close (adjust delay as needed) then navigate
-    setTimeout(() => {
-      router.push('/home');
-    }, 300);
+  const handleContinue = async () => {
+    if (name.trim()) {
+      await AsyncStorage.setItem('userName', name);
+      setModalVisible(false);
+      setTimeout(() => {
+        router.replace('/(tabs)/home');
+      }, 300);
+    }
   };
 
   return (
-    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* App Logo and Tagline */}
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}> 
       <Image source={img1} style={styles.logo} />
       <Text style={styles.tagline}>Ride Smart. Ride Together.</Text>
 
-      {/* Display App Features */}
       <View style={styles.featuresContainer}>
         <View style={styles.featureItem}>
-          <Image
-            source={img2}
-            style={styles.featureIcon}
-          />
+          <Image source={img2} style={styles.featureIcon} />
           <Text style={styles.featureText}>Real-Time Tracking</Text>
         </View>
         <View style={styles.featureItem}>
-          <Image
-            source={img3}
-            style={styles.featureIcon}
-          />
+          <Image source={img3} style={styles.featureIcon} />
           <Text style={styles.featureText}>Group Coordination</Text>
         </View>
         <View style={styles.featureItem}>
-          <Image
-            source={img4}
-            style={styles.featureIcon}
-          />
+          <Image source={img4} style={styles.featureIcon} />
           <Text style={styles.featureText}>Safety Alerts</Text>
         </View>
       </View>
 
-      {/* Get Started Button */}
       <TouchableOpacity style={styles.getStartedButton} onPress={handleGetStarted}>
         <Text style={styles.getStartedButtonText}>Get Started</Text>
       </TouchableOpacity>
 
-      {/* Modal for Name Input */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -85,7 +86,7 @@ const handleContinue = () => {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalContent}>
             <Text style={styles.modalTitle}>Welcome!</Text>
             <TextInput
               placeholder="Enter your name"
@@ -93,14 +94,10 @@ const handleContinue = () => {
               onChangeText={setName}
               style={styles.input}
             />
-            <TouchableOpacity
-  style={styles.modalButton}
-  onPress={handleContinue}
->
-  <Text style={styles.modalButtonText}>Continue</Text>
-</TouchableOpacity>
-
-          </View>
+            <TouchableOpacity style={styles.modalButton} onPress={handleContinue}>
+              <Text style={styles.modalButtonText}>Continue</Text>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </Animated.View>
@@ -110,7 +107,7 @@ const handleContinue = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff', // Customize as needed
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
