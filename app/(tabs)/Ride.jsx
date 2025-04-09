@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   FlatList,
+  Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -46,17 +47,39 @@ export default function Ride() {
   const saveSession = async (session) => {
     try {
       await AsyncStorage.setItem('rideSession', JSON.stringify(session));
+      if (session.destination) {
+        const geo = getCoordinatesForDestination(session.destination);
+        await AsyncStorage.setItem(
+          'rideDestination',
+          JSON.stringify({ name: session.destination, ...geo })
+        );
+      }
     } catch (e) {
       console.error('Failed to save session', e);
     }
   };
 
+  const getCoordinatesForDestination = (destinationName) => {
+    // Replace this with actual geocoding logic or API call
+    const mapping = {
+      'Nandi Hills': { latitude: 13.3702, longitude: 77.6835 },
+      'MG Road': { latitude: 12.9756, longitude: 77.6056 },
+      'Lalbagh': { latitude: 12.9507, longitude: 77.5848 },
+    };
+    return mapping[destinationName] || { latitude: 0, longitude: 0 };
+  };
+
   const clearSession = async () => {
     try {
       await AsyncStorage.removeItem('rideSession');
+      await AsyncStorage.removeItem('rideDestination');
     } catch (e) {
       console.error('Failed to clear session', e);
     }
+  };
+
+  const generateRideCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
   };
 
   const handleCreateRide = async () => {
@@ -64,7 +87,7 @@ export default function Ride() {
       alert('Please enter a destination');
       return;
     }
-    const generatedCode = 'ABC123';
+    const generatedCode = generateRideCode();
     setRideCode(generatedCode);
     setIsOrganizer(true);
     setRideStarted(true);
@@ -94,6 +117,26 @@ export default function Ride() {
     setIsOrganizer(false);
     setRideStarted(false);
     await clearSession();
+  };
+
+  const handleShareRideCode = async () => {
+    try {
+      await Share.share({
+        message: `Join my ride to ${destination} using this code: ${rideCode}`,
+      });
+    } catch (error) {
+      alert('Failed to share ride code');
+    }
+  };
+
+  const handleGoToMap = async () => {
+    try {
+      const destinationData = await AsyncStorage.getItem('rideDestination');
+      const parsedDestination = destinationData ? JSON.parse(destinationData) : null;
+      navigation.navigate('Map', { destination: parsedDestination });
+    } catch (e) {
+      console.error('Failed to navigate to map', e);
+    }
   };
 
   const showRideDetails = rideStarted;
@@ -161,7 +204,11 @@ export default function Ride() {
             renderItem={({ item }) => <Text>• {item.name}</Text>}
           />
 
-          <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Map')}>
+          <TouchableOpacity style={styles.button} onPress={handleShareRideCode}>
+            <Text style={styles.buttonText}>Share Ride Code</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.button} onPress={handleGoToMap}>
             <Text style={styles.buttonText}>Go to Map</Text>
           </TouchableOpacity>
 

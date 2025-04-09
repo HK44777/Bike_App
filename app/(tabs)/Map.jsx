@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Animated, TextInput } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 
@@ -13,6 +14,7 @@ const participantsMock = [
 export default function MapScreen() {
   const [location, setLocation] = useState(null);
   const [region, setRegion] = useState(null);
+  const [destination, setDestination] = useState(null);
   const [tabVisible, setTabVisible] = useState(true);
   const [tabAnim] = useState(new Animated.Value(1));
   const navigation = useNavigation();
@@ -36,8 +38,14 @@ export default function MapScreen() {
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       });
+
+      const dest = await AsyncStorage.getItem('rideDestination');
+      if (dest) {
+        const parsed = JSON.parse(dest);
+        setDestination(parsed);
+      }
     })();
-  }, []);
+  }, [isFocused]);
 
   const centerOnMe = () => {
     if (location) {
@@ -61,7 +69,9 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerText}>Ride to Nandi Hills</Text>
+        <Text style={styles.headerText}>
+          Ride to {destination?.name || 'Nandi Hills'}
+        </Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity onPress={() => navigation.navigate('Ride')} style={styles.rideButton}>
             <Text style={styles.rideText}>Go to Ride</Text>
@@ -81,9 +91,12 @@ export default function MapScreen() {
               title={p.name}
             />
           ))}
-          {location && (
+          {location && destination && (
             <Polyline
-              coordinates={[{ latitude: location.latitude, longitude: location.longitude }, { latitude: 13.3702, longitude: 77.6835 }]}
+              coordinates={[
+                { latitude: location.latitude, longitude: location.longitude },
+                { latitude: destination.latitude, longitude: destination.longitude },
+              ]}
               strokeColor="#007AFF"
               strokeWidth={3}
             />
