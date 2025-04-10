@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Animated, TextInput } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Dimensions,
+  Animated,
+  TextInput,
+  FlatList,
+  Keyboard,
+} from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,10 +21,15 @@ const participantsMock = [
   { id: '2', name: 'Bob', latitude: 12.936, longitude: 77.622 },
 ];
 
+const ORS_API_KEY = '5b3ce3597851110001cf624832e01e5eb3c043189d21f885ad759b38';
+
 export default function MapScreen() {
   const [location, setLocation] = useState(null);
   const [region, setRegion] = useState(null);
   const [destination, setDestination] = useState(null);
+  const [routeCoords, setRouteCoords] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
   const [tabVisible, setTabVisible] = useState(true);
   const [tabAnim] = useState(new Animated.Value(1));
   const navigation = useNavigation();
@@ -47,41 +62,111 @@ export default function MapScreen() {
     })();
   }, [isFocused]);
 
-  const centerOnMe = () => {
-    if (location) {
-      setRegion({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
+  useEffect(() => {
+    if (location && destination) {
+      fetchRoute();
+    }
+  }, [location, destination]);
+
+  const fetchRoute = async () => {
+    try {
+      const response = await fetch(
+        'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': ORS_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            coordinates: [
+              [location.longitude, location.latitude],
+              [destination.longitude, destination.latitude],
+            ],
+          }),
+        }
+      );
+      const data = await response.json();
+      const coords = data.features[0].geometry.coordinates.map(([lng, lat]) => ({
+        latitude: lat,
+        longitude: lng,
+      }));
+      setRouteCoords(coords);
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      alert('Error fetching route');
     }
   };
 
-  const toggleTabBar = () => {
-    Animated.timing(tabAnim, {
-      toValue: tabVisible ? 0 : 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => setTabVisible(!tabVisible));
+  const handleSearchChange = async (text) => {
+    setSearchQuery(text);
+    if (!text) return setSuggestions([]);
+
+    try {
+      const res = await fetch(
+        `https://api.openrouteservice.org/geocode/autocomplete?api_key=${ORS_API_KEY}&text=${encodeURIComponent(
+          text
+        )}&boundary.country=IN`
+      );
+      const data = await res.json();
+      setSuggestions(data.features || []);
+    } catch (err) {
+      console.error('Autocomplete error:', err);
+    }
+  };
+
+  const handleSuggestionSelect = (place) => {
+    const [lng, lat] = place.geometry.coordinates;
+    const placeName = place.properties.label;
+
+    const newDestination = {
+      latitude: lat,
+      longitude: lng,
+      name: placeName,
+    };
+
+    setDestination(newDestination);
+    setRegion({
+      latitude: lat,
+      longitude: lng,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    });
+    setSuggestions([]);
+    setSearchQuery('');
+    Keyboard.dismiss();
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>
-          Ride to {destination?.name || 'Nandi Hills'}
-        </Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={() => navigation.navigate('Ride')} style={styles.rideButton}>
-            <Text style={styles.rideText}>Go to Ride</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={toggleTabBar} style={styles.toggleButton}>
-            <Text style={styles.toggleText}>{tabVisible ? '↓' : '↑'}</Text>
-          </TouchableOpacity>
-        </View>
+      {/* Search and Ride button */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search for a place"
+          value={searchQuery}
+          onChangeText={handleSearchChange}
+        />
       </View>
 
+      {/* Autocomplete suggestions */}
+      {suggestions.length > 0 && (
+        <FlatList
+          data={suggestions}
+          keyExtractor={(item) => item.properties.id}
+          style={styles.suggestionsList}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.suggestionItem}
+              onPress={() => handleSuggestionSelect(item)}
+            >
+              <Text>{item.properties.label}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+
+      {/* Map */}
       {region && (
         <MapView style={styles.map} region={region} showsUserLocation>
           {participantsMock.map((p) => (
@@ -91,34 +176,20 @@ export default function MapScreen() {
               title={p.name}
             />
           ))}
-          {location && destination && (
-            <Polyline
-              coordinates={[
-                { latitude: location.latitude, longitude: location.longitude },
-                { latitude: destination.latitude, longitude: destination.longitude },
-              ]}
-              strokeColor="#007AFF"
-              strokeWidth={3}
-            />
+          {routeCoords.length > 0 && (
+            <Polyline coordinates={routeCoords} strokeColor="#007AFF" strokeWidth={3} />
           )}
         </MapView>
       )}
 
+      {/* Bottom Control Bar */}
       <Animated.View style={[styles.bottomBar, { opacity: tabAnim }]}>
-        <TouchableOpacity style={styles.controlButton} onPress={centerOnMe}>
-          <Text style={styles.controlButtonText}>Center on Me</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton}>
-          <Text style={styles.controlButtonText}>Show Route</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Ride')} style={styles.controlButton}>
+          <Text style={styles.controlButtonText}>Go to Ride</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.controlButton, { backgroundColor: 'red' }]}>
           <Text style={styles.controlButtonText}>SOS</Text>
         </TouchableOpacity>
-      </Animated.View>
-
-      <Animated.View style={[styles.infoBar, { opacity: tabAnim }]}>
-        <Text style={styles.infoText}>ETA: 15 mins</Text>
-        <Text style={styles.infoText}>Distance: 12 km</Text>
       </Animated.View>
     </View>
   );
@@ -126,44 +197,50 @@ export default function MapScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingTop: 50,
-    paddingBottom: 10,
+  searchContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 10,
+    right: 10,
+    zIndex: 1000,
+    flexDirection: 'row',
     backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    elevation: 5,
   },
-  headerText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  searchInput: {
+    flex: 1,
+    height: 45,
+    fontSize: 16,
   },
   rideButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    marginLeft: 10,
     backgroundColor: '#007AFF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 6,
   },
   rideText: {
     color: '#fff',
     fontWeight: '600',
   },
-  toggleButton: {
-    padding: 8,
-    backgroundColor: '#ddd',
-    borderRadius: 5,
-    marginLeft: 10,
+  suggestionsList: {
+    position: 'absolute',
+    top: 100,
+    left: 10,
+    right: 10,
+    backgroundColor: '#fff',
+    zIndex: 1000,
+    maxHeight: 200,
+    borderRadius: 8,
+    elevation: 3,
   },
-  toggleText: {
-    fontSize: 18,
+  suggestionItem: {
+    padding: 12,
+    borderBottomColor: '#eee',
+    borderBottomWidth: 1,
   },
   map: {
     width: Dimensions.get('window').width,
@@ -175,7 +252,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-evenly',
     padding: 10,
     backgroundColor: '#fff',
   },
@@ -188,18 +265,5 @@ const styles = StyleSheet.create({
   controlButtonText: {
     color: '#fff',
     fontWeight: '600',
-  },
-  infoBar: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 10,
-    backgroundColor: '#f0f0f0',
-  },
-  infoText: {
-    fontSize: 16,
   },
 });
