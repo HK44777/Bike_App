@@ -1,5 +1,5 @@
 // 🔄 ... Keep imports as you had them
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,26 @@ import {
   Button,
   Alert,
   Keyboard,
+  Image,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
 import PolylineDecoder from '@mapbox/polyline';
+import * as Location from 'expo-location';
 
 // 🔐 Your Ola Maps API Key
 const OLA_API_KEY = 'CornDpxoVHMISlbCN8ePrPdauyrHDeIBZotfvRdy';
 
-const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
+const OlaPlacesAutocomplete = ({ placeholder, onSelect, clearPickupRef }) => {
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
+
+  useEffect(() => {
+    if (placeholder.toLowerCase().includes('pickup') && clearPickupRef) {
+      clearPickupRef.current = () => {
+        setInput('');
+      };
+    }
+  }, []);
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -27,7 +37,7 @@ const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
         setSuggestions([]);
         return;
       }
-    
+
       try {
         const response = await fetch(
           `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(input)}&api_key=${OLA_API_KEY}`,
@@ -35,11 +45,11 @@ const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
             headers: { 'X-Request-Id': 'sample-request-id' },
           }
         );
-    
+
         const contentType = response.headers.get('Content-Type');
         const isJson = contentType && contentType.includes('application/json');
         const text = await response.text();
-    
+
         if (isJson) {
           const json = JSON.parse(text);
           const results = json?.predictions || [];
@@ -53,11 +63,10 @@ const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
         setSuggestions([]);
       }
     };
-    
+
     const debounce = setTimeout(fetchSuggestions, 400);
     return () => clearTimeout(debounce);
   }, [input]);
-
 
   return (
     <View style={styles.autocompleteContainer}>
@@ -100,22 +109,85 @@ const MapScreenOla = () => {
   const [stops, setStops] = useState([]);
   const [showStopInput, setShowStopInput] = useState(false);
   const [routeData, setRouteData] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [heading, setHeading] = useState(0);
+  const clearPickupRef = useRef(null);
+  const userLocationAnim = useRef(new AnimatedRegion({
+    latitude: 0,
+    longitude: 0,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  })).current;
+
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required.');
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude, heading } = location.coords;
+
+      setUserLocation({ latitude, longitude });
+      setHeading(heading || 0);
+      userLocationAnim.setValue({ latitude, longitude });
+
+      if (!pickup) {
+        setPickup({ latitude, longitude, description: 'Current Location' });
+      }
+
+      Location.watchPositionAsync({
+        accuracy: Location.Accuracy.High,
+        timeInterval: 3000,
+        distanceInterval: 10,
+      }, loc => {
+        const { latitude, longitude, heading } = loc.coords;
+        setUserLocation({ latitude, longitude });
+        setHeading(heading || 0);
+        userLocationAnim.timing({
+          latitude,
+          longitude,
+          duration: 1000,
+          useNativeDriver: false,
+        }).start();
+      });
+    })();
+  }, []);
 
   const addStop = place => {
     setStops(prev => [...prev, place]);
   };
 
   const fetchRoute = async () => {
-    if (!pickup || !destination) {
-      Alert.alert('Error', 'Please select both pickup and destination.');
+    if (!destination) {
+      Alert.alert('Error', 'Please select a destination.');
       return;
     }
-
+  
+    // ✅ Default to current location if pickup is null or empty
+    let finalPickup = pickup;
+    if (!pickup || !pickup.description || pickup.description.trim() === '') {
+      if (userLocation) {
+        finalPickup = {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          description: 'Current Location',
+        };
+        setPickup(finalPickup); // update state as well
+      } else {
+        Alert.alert('Error', 'Current location not available.');
+        return;
+      }
+    }
+  
     try {
-      const allLocations = [pickup, ...stops, destination];
+      const allLocations = [finalPickup, ...stops, destination];
       const locationStr = allLocations
         .map(loc => `${loc.latitude},${loc.longitude}`)
         .join('|');
+  
 
       const response = await fetch(
         `https://api.olamaps.io/routing/v1/routeOptimizer?locations=${locationStr}&api_key=${OLA_API_KEY}`,
@@ -126,8 +198,6 @@ const MapScreenOla = () => {
       );
 
       const json = await response.json();
-      
-
       const route = json?.routes?.[0];
 
       if (!route?.overview_polyline) {
@@ -139,17 +209,6 @@ const MapScreenOla = () => {
         ([lat, lng]) => ({ latitude: lat, longitude: lng })
       );
 
-      const coordinates = route.legs?.[0]?.steps?.flatMap((step) => [
-        {
-          latitude: step.start_location.lat,
-          longitude: step.start_location.lng,
-        },
-        {
-          latitude: step.end_location.lat,
-          longitude: step.end_location.lng,
-        },
-      ]);
-
       const totalDistance = route.legs?.reduce((sum, leg) => sum + (leg.distance || 0), 0) || 0;
       const totalDuration = route.legs?.reduce((sum, leg) => sum + (leg.duration || 0), 0) || 0;
 
@@ -160,7 +219,6 @@ const MapScreenOla = () => {
         polyline: decodedPolyline,
         distance,
         duration,
-        coordinates,
       });
     } catch (err) {
       console.error('Error fetching route:', err);
@@ -209,19 +267,12 @@ const MapScreenOla = () => {
 
   return (
     <View style={styles.container}>
-      {/* Top Autocomplete Inputs */}
       <View style={styles.autocompleteWrapper}>
         <Text style={styles.heading}>Pickup</Text>
-        <OlaPlacesAutocomplete
-          placeholder="Enter pickup location"
-          onSelect={place => setPickup(place)}
-        />
+        <OlaPlacesAutocomplete placeholder="Enter pickup location" onSelect={setPickup} clearPickupRef={clearPickupRef} />
 
         <Text style={styles.heading}>Destination</Text>
-        <OlaPlacesAutocomplete
-          placeholder="Enter destination location"
-          onSelect={place => setDestination(place)}
-        />
+        <OlaPlacesAutocomplete placeholder="Enter destination location" onSelect={setDestination} />
 
         <Text style={styles.heading}>Stops (optional)</Text>
         {stops.map((stop, index) => (
@@ -249,7 +300,6 @@ const MapScreenOla = () => {
         </View>
       </View>
 
-      {/* Map */}
       <MapView
         style={styles.map}
         initialRegion={{
@@ -260,12 +310,22 @@ const MapScreenOla = () => {
         }}
       >
         {renderMarkers()}
+
+        {userLocation && (
+          <Marker.Animated
+            coordinate={userLocationAnim}
+            anchor={{ x: 0.5, y: 0.5 }}
+            style={{ transform: [{ rotate: `${heading}deg` }] }}
+          >
+            <View style={{ width: 20, height: 20, backgroundColor: 'blue', borderRadius: 10, borderWidth: 2, borderColor: '#fff' }} />
+          </Marker.Animated>
+        )}
+
         {routeData?.polyline && (
           <Polyline coordinates={routeData.polyline} strokeColor="#007AFF" strokeWidth={4} />
         )}
       </MapView>
 
-      {/* Distance & Duration Box */}
       {routeData && (
         <View style={styles.routeDetails}>
           <Text style={styles.routeText}>🛣 Distance: {routeData.distance}</Text>
@@ -288,10 +348,7 @@ const styles = StyleSheet.create({
     padding: 10,
     zIndex: 10,
   },
-  heading: {
-    fontWeight: '600',
-    marginVertical: 5,
-  },
+  heading: { fontWeight: '600', marginVertical: 5 },
   autocompleteContainer: {
     marginVertical: 5,
     backgroundColor: '#e9e9e9',
@@ -318,19 +375,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginVertical: 5,
   },
-  addStopText: {
-    color: '#fff',
-    textAlign: 'center',
-  },
-  stopText: {
-    fontSize: 14,
-    marginVertical: 2,
-  },
+  addStopText: { color: '#fff', textAlign: 'center' },
+  stopText: { fontSize: 14, marginVertical: 2 },
   buttonContainer: { marginVertical: 10 },
-  map: {
-    flex: 1,
-    marginTop: 350,
-  },
+  map: { flex: 1, marginTop: 350 },
   routeDetails: {
     position: 'absolute',
     bottom: 20,
@@ -345,11 +393,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
   },
-  routeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginVertical: 2,
-  },
+  routeText: { fontSize: 16, fontWeight: '600', marginVertical: 2 },
 });
 
 export default MapScreenOla;
