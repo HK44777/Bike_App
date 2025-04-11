@@ -1,269 +1,328 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-  Animated,
   TextInput,
+  TouchableOpacity,
   FlatList,
-  Keyboard,
+  StyleSheet,
+  Button,
+  Alert,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
-import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import MapView, { Marker,Polyline} from 'react-native-maps';
+import { Keyboard } from 'react-native';
+import PolylineDecoder from '@mapbox/polyline';
 
-const participantsMock = [
-  { id: '1', name: 'Alice', latitude: 12.9345, longitude: 77.6266 },
-  { id: '2', name: 'Bob', latitude: 12.936, longitude: 77.622 },
-];
 
-const ORS_API_KEY = '5b3ce3597851110001cf624832e01e5eb3c043189d21f885ad759b38';
 
-export default function MapScreen() {
-  const [location, setLocation] = useState(null);
-  const [region, setRegion] = useState(null);
-  const [destination, setDestination] = useState(null);
-  const [routeCoords, setRouteCoords] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
+const OLA_API_KEY = 'CornDpxoVHMISlbCN8ePrPdauyrHDeIBZotfvRdy';
+
+const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
+  const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
-  const [tabVisible, setTabVisible] = useState(true);
-  const [tabAnim] = useState(new Animated.Value(1));
-  const navigation = useNavigation();
-  const isFocused = useIsFocused();
-  const tabBarHeight = useBottomTabBarHeight();
 
   useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Permission to access location was denied');
+    const fetchSuggestions = async () => {
+      if (input.length < 3) {
+        setSuggestions([]);
         return;
       }
 
-      let loc = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = loc.coords;
-      setLocation({ latitude, longitude });
-      setRegion({
-        latitude,
-        longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
+      try {
+        const response = await fetch(
+          `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(input)}&api_key=${OLA_API_KEY}`,
+          {
+            headers: {
+              'X-Request-Id': 'sample-request-id', // Optional
+            },
+          }
+        );
 
-      const dest = await AsyncStorage.getItem('rideDestination');
-      if (dest) {
-        const parsed = JSON.parse(dest);
-        setDestination(parsed);
+        const json = await response.json();
+        console.log('Autocomplete response:', json);
+
+        const results = json?.predictions || [];
+        setSuggestions(results);
+      } catch (error) {
+        console.error('Error fetching autocomplete from Ola:', error);
+        setSuggestions([]);
       }
-    })();
-  }, [isFocused]);
-
-  useEffect(() => {
-    if (location && destination) {
-      fetchRoute();
-    }
-  }, [location, destination]);
-
-  const fetchRoute = async () => {
-    try {
-      const response = await fetch(
-        'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': ORS_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            coordinates: [
-              [location.longitude, location.latitude],
-              [destination.longitude, destination.latitude],
-            ],
-          }),
-        }
-      );
-      const data = await response.json();
-      const coords = data.features[0].geometry.coordinates.map(([lng, lat]) => ({
-        latitude: lat,
-        longitude: lng,
-      }));
-      setRouteCoords(coords);
-    } catch (error) {
-      console.error('Error fetching route:', error);
-      alert('Error fetching route');
-    }
-  };
-
-  const handleSearchChange = async (text) => {
-    setSearchQuery(text);
-    if (!text) return setSuggestions([]);
-
-    try {
-      const res = await fetch(
-        `https://api.openrouteservice.org/geocode/autocomplete?api_key=${ORS_API_KEY}&text=${encodeURIComponent(
-          text
-        )}&boundary.country=IN`
-      );
-      const data = await res.json();
-      setSuggestions(data.features || []);
-    } catch (err) {
-      console.error('Autocomplete error:', err);
-    }
-  };
-
-  const handleSuggestionSelect = (place) => {
-    const [lng, lat] = place.geometry.coordinates;
-    const placeName = place.properties.label;
-
-    const newDestination = {
-      latitude: lat,
-      longitude: lng,
-      name: placeName,
     };
 
-    setDestination(newDestination);
-    setRegion({
-      latitude: lat,
-      longitude: lng,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    });
-    setSuggestions([]);
-    setSearchQuery('');
-    Keyboard.dismiss();
-  };
+    const debounce = setTimeout(fetchSuggestions, 400);
+    return () => clearTimeout(debounce);
+  }, [input]);
 
   return (
-    <View style={styles.container}>
-      {/* Search and Ride button */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for a place"
-          value={searchQuery}
-          onChangeText={handleSearchChange}
-        />
-      </View>
-
-      {/* Autocomplete suggestions */}
+    <View style={styles.autocompleteContainer}>
+      <TextInput
+        style={styles.input}
+        placeholder={placeholder}
+        value={input}
+        onChangeText={text => setInput(text)}
+      />
       {suggestions.length > 0 && (
         <FlatList
           data={suggestions}
-          keyExtractor={(item) => item.properties.id}
-          style={styles.suggestionsList}
+          keyExtractor={(item, index) => index.toString()}
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={styles.suggestionItem}
-              onPress={() => handleSuggestionSelect(item)}
+            onPress={() => {
+              const selectedText = item.description || item.name || '';
+              setInput(selectedText);         // ✅ Set the selected value in the input
+              setSuggestions([]);             // ✅ Clear the suggestions
+              Keyboard.dismiss();             // ✅ Hide the keyboard
+              onSelect({
+                latitude: item.lat || item.geometry?.location?.lat || 0,
+                longitude: item.lng || item.geometry?.location?.lng || 0,
+                description: selectedText,
+              });
+            }}
+            
             >
-              <Text>{item.properties.label}</Text>
+              <Text style={styles.suggestionText}>{item.description}</Text>
             </TouchableOpacity>
           )}
         />
       )}
-
-      {/* Map */}
-      {region && (
-        <MapView style={styles.map} region={region} showsUserLocation>
-          {participantsMock.map((p) => (
-            <Marker
-              key={p.id}
-              coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-              title={p.name}
-            />
-          ))}
-          {routeCoords.length > 0 && (
-            <Polyline coordinates={routeCoords} strokeColor="#007AFF" strokeWidth={3} />
-          )}
-        </MapView>
-      )}
-
-      {/* Bottom Control Bar */}
-      <Animated.View style={[styles.bottomBar, { opacity: tabAnim }]}>
-        <TouchableOpacity onPress={() => navigation.navigate('Ride')} style={styles.controlButton}>
-          <Text style={styles.controlButtonText}>Go to Ride</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.controlButton, { backgroundColor: 'red' }]}>
-          <Text style={styles.controlButtonText}>SOS</Text>
-        </TouchableOpacity>
-      </Animated.View>
     </View>
   );
-}
+};
+
+const MapScreenOla = () => {
+  const [pickup, setPickup] = useState(null);
+  const [destination, setDestination] = useState(null);
+  const [stops, setStops] = useState([]);
+  const [showStopInput, setShowStopInput] = useState(false);
+  const [routeData, setRouteData] = useState(null);
+
+  const addStop = place => {
+    setStops(prev => [...prev, place]);
+  };
+
+
+
+const fetchRoute = async () => {
+  if (!pickup || !destination) {
+    Alert.alert('Error', 'Please select both pickup and destination locations.');
+    return;
+  }
+
+  try {
+    const allLocations = [pickup, ...stops, destination];
+    const locationStr = allLocations
+      .map(loc => `${loc.latitude},${loc.longitude}`)
+      .join('|');
+
+    const response = await fetch(
+      `https://api.olamaps.io/routing/v1/routeOptimizer?locations=${locationStr}&api_key=${OLA_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'X-Request-Id': 'XXX',
+        },
+      }
+    );
+
+    const json = await response.json();
+    console.log('Route Optimizer response:', json);
+
+    const encodedPolyline = json?.routes?.[0]?.overview_polyline;
+
+    if (!encodedPolyline) {
+      Alert.alert('Error', 'No route found.');
+      return;
+    }
+
+    const decodedPolyline = PolylineDecoder.decode(encodedPolyline).map(([lat, lng]) => ({
+      latitude: lat,
+      longitude: lng,
+    }));
+
+    setRouteData({
+      polyline: decodedPolyline,
+      distance: 'N/A', // You can parse and show this from json.routes[0].legs if needed
+      duration: 'N/A',
+    });
+  } catch (err) {
+    console.error('Error fetching route:', err);
+    Alert.alert('Error', 'Failed to fetch route.');
+  }
+};
+
+  
+  const renderMarkers = () => {
+    const markers = [];
+
+    if (pickup) {
+      markers.push(
+        <Marker
+          key="pickup"
+          coordinate={{ latitude: pickup.latitude, longitude: pickup.longitude }}
+          title="Pickup"
+          pinColor="green"
+        />
+      );
+    }
+
+    if (destination) {
+      markers.push(
+        <Marker
+          key="destination"
+          coordinate={{ latitude: destination.latitude, longitude: destination.longitude }}
+          title="Destination"
+          pinColor="red"
+        />
+      );
+    }
+
+    stops.forEach((stop, index) => {
+      markers.push(
+        <Marker
+          key={`stop-${index}`}
+          coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
+          title={`Stop ${index + 1}`}
+          pinColor="orange"
+        />
+      );
+    });
+
+    return markers;
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.autocompleteWrapper}>
+        <Text style={styles.heading}>Pickup</Text>
+        <OlaPlacesAutocomplete
+          placeholder="Enter pickup location"
+          onSelect={place => setPickup(place)}
+        />
+
+        <Text style={styles.heading}>Destination</Text>
+        <OlaPlacesAutocomplete
+          placeholder="Enter destination location"
+          onSelect={place => setDestination(place)}
+        />
+
+        <Text style={styles.heading}>Stops (optional)</Text>
+        {stops.map((stop, index) => (
+          <Text key={index} style={styles.stopText}>
+            Stop {index + 1}: {stop.description}
+          </Text>
+        ))}
+
+        {showStopInput ? (
+          <OlaPlacesAutocomplete
+            placeholder="Enter stop location"
+            onSelect={place => {
+              addStop(place);
+              setShowStopInput(false);
+            }}
+          />
+        ) : (
+          <TouchableOpacity style={styles.addStopButton} onPress={() => setShowStopInput(true)}>
+            <Text style={styles.addStopText}>+ Add a Stop</Text>
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.buttonContainer}>
+          <Button title="Show Route" onPress={fetchRoute} />
+        </View>
+      </View>
+
+      <MapView
+        style={styles.map}
+        initialRegion={{
+          latitude: pickup?.latitude || 12.9716,
+          longitude: pickup?.longitude || 77.5946,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        }}
+      >
+        {renderMarkers()}
+        {routeData?.polyline && (
+          <Polyline coordinates={routeData.polyline} strokeColor="#000" strokeWidth={3} />
+        )}
+      </MapView>
+
+      {routeData && (
+        <View style={styles.routeDetails}>
+          <Text style={styles.routeText}>Distance: {routeData.distance}</Text>
+          <Text style={styles.routeText}>Duration: {routeData.duration}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  searchContainer: {
+  autocompleteWrapper: {
     position: 'absolute',
-    top: 50,
+    top: 40,
     left: 10,
     right: 10,
-    zIndex: 1000,
-    flexDirection: 'row',
     backgroundColor: '#fff',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    elevation: 5,
+    padding: 10,
+    zIndex: 10,
   },
-  searchInput: {
-    flex: 1,
-    height: 45,
-    fontSize: 16,
-  },
-  rideButton: {
-    marginLeft: 10,
-    backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-  },
-  rideText: {
-    color: '#fff',
+  heading: {
     fontWeight: '600',
+    marginVertical: 5,
   },
-  suggestionsList: {
-    position: 'absolute',
-    top: 100,
-    left: 10,
-    right: 10,
-    backgroundColor: '#fff',
-    zIndex: 1000,
-    maxHeight: 200,
-    borderRadius: 8,
-    elevation: 3,
+  autocompleteContainer: {
+    marginVertical: 5,
+    backgroundColor: '#e9e9e9',
+    borderRadius: 4,
+    paddingHorizontal: 8,
   },
-  suggestionItem: {
-    padding: 12,
-    borderBottomColor: '#eee',
+  input: {
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    marginVertical: 5,
+    borderRadius: 4,
+  },
+  suggestionText: {
+    padding: 8,
+    fontSize: 14,
+    borderBottomColor: '#ccc',
     borderBottomWidth: 1,
   },
-  map: {
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height,
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 80,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    padding: 10,
-    backgroundColor: '#fff',
-  },
-  controlButton: {
+  addStopButton: {
     backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
+    padding: 10,
+    borderRadius: 4,
+    marginVertical: 5,
+  },
+  addStopText: {
+    color: '#fff',
+    textAlign: 'center',
+  },
+  stopText: {
+    fontSize: 14,
+    marginVertical: 2,
+  },
+  buttonContainer: { marginVertical: 10 },
+  map: {
+    flex: 1,
+    marginTop: 350,
+  },
+  routeDetails: {
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    padding: 12,
     borderRadius: 8,
   },
-  controlButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+  routeText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
+
+export default MapScreenOla;
