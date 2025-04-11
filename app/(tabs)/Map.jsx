@@ -1,3 +1,4 @@
+// 🔄 ... Keep imports as you had them
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -8,13 +9,12 @@ import {
   StyleSheet,
   Button,
   Alert,
+  Keyboard,
 } from 'react-native';
-import MapView, { Marker,Polyline} from 'react-native-maps';
-import { Keyboard } from 'react-native';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import PolylineDecoder from '@mapbox/polyline';
 
-
-
+// 🔐 Your Ola Maps API Key
 const OLA_API_KEY = 'CornDpxoVHMISlbCN8ePrPdauyrHDeIBZotfvRdy';
 
 const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
@@ -27,31 +27,37 @@ const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
         setSuggestions([]);
         return;
       }
-
+    
       try {
         const response = await fetch(
           `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(input)}&api_key=${OLA_API_KEY}`,
           {
-            headers: {
-              'X-Request-Id': 'sample-request-id', // Optional
-            },
+            headers: { 'X-Request-Id': 'sample-request-id' },
           }
         );
-
-        const json = await response.json();
-        console.log('Autocomplete response:', json);
-
-        const results = json?.predictions || [];
-        setSuggestions(results);
+    
+        const contentType = response.headers.get('Content-Type');
+        const isJson = contentType && contentType.includes('application/json');
+        const text = await response.text();
+    
+        if (isJson) {
+          const json = JSON.parse(text);
+          const results = json?.predictions || [];
+          setSuggestions(results);
+        } else {
+          console.warn('⚠️ Ola responded with non-JSON:', text.slice(0, 200));
+          setSuggestions([]);
+        }
       } catch (error) {
-        console.error('Error fetching autocomplete from Ola:', error);
+        console.error('🚨 Network error fetching autocomplete from Ola:', error);
         setSuggestions([]);
       }
     };
-
+    
     const debounce = setTimeout(fetchSuggestions, 400);
     return () => clearTimeout(debounce);
   }, [input]);
+
 
   return (
     <View style={styles.autocompleteContainer}>
@@ -67,18 +73,17 @@ const OlaPlacesAutocomplete = ({ placeholder, onSelect }) => {
           keyExtractor={(item, index) => index.toString()}
           renderItem={({ item }) => (
             <TouchableOpacity
-            onPress={() => {
-              const selectedText = item.description || item.name || '';
-              setInput(selectedText);         // ✅ Set the selected value in the input
-              setSuggestions([]);             // ✅ Clear the suggestions
-              Keyboard.dismiss();             // ✅ Hide the keyboard
-              onSelect({
-                latitude: item.lat || item.geometry?.location?.lat || 0,
-                longitude: item.lng || item.geometry?.location?.lng || 0,
-                description: selectedText,
-              });
-            }}
-            
+              onPress={() => {
+                const selectedText = item.description || item.name || '';
+                setInput(selectedText);
+                setSuggestions([]);
+                Keyboard.dismiss();
+                onSelect({
+                  latitude: item.lat || item.geometry?.location?.lat || 0,
+                  longitude: item.lng || item.geometry?.location?.lng || 0,
+                  description: selectedText,
+                });
+              }}
             >
               <Text style={styles.suggestionText}>{item.description}</Text>
             </TouchableOpacity>
@@ -100,57 +105,69 @@ const MapScreenOla = () => {
     setStops(prev => [...prev, place]);
   };
 
-
-
-const fetchRoute = async () => {
-  if (!pickup || !destination) {
-    Alert.alert('Error', 'Please select both pickup and destination locations.');
-    return;
-  }
-
-  try {
-    const allLocations = [pickup, ...stops, destination];
-    const locationStr = allLocations
-      .map(loc => `${loc.latitude},${loc.longitude}`)
-      .join('|');
-
-    const response = await fetch(
-      `https://api.olamaps.io/routing/v1/routeOptimizer?locations=${locationStr}&api_key=${OLA_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'X-Request-Id': 'XXX',
-        },
-      }
-    );
-
-    const json = await response.json();
-    console.log('Route Optimizer response:', json);
-
-    const encodedPolyline = json?.routes?.[0]?.overview_polyline;
-
-    if (!encodedPolyline) {
-      Alert.alert('Error', 'No route found.');
+  const fetchRoute = async () => {
+    if (!pickup || !destination) {
+      Alert.alert('Error', 'Please select both pickup and destination.');
       return;
     }
 
-    const decodedPolyline = PolylineDecoder.decode(encodedPolyline).map(([lat, lng]) => ({
-      latitude: lat,
-      longitude: lng,
-    }));
+    try {
+      const allLocations = [pickup, ...stops, destination];
+      const locationStr = allLocations
+        .map(loc => `${loc.latitude},${loc.longitude}`)
+        .join('|');
 
-    setRouteData({
-      polyline: decodedPolyline,
-      distance: 'N/A', // You can parse and show this from json.routes[0].legs if needed
-      duration: 'N/A',
-    });
-  } catch (err) {
-    console.error('Error fetching route:', err);
-    Alert.alert('Error', 'Failed to fetch route.');
-  }
-};
+      const response = await fetch(
+        `https://api.olamaps.io/routing/v1/routeOptimizer?locations=${locationStr}&api_key=${OLA_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'X-Request-Id': 'request-id-123' },
+        }
+      );
 
-  
+      const json = await response.json();
+      
+
+      const route = json?.routes?.[0];
+
+      if (!route?.overview_polyline) {
+        Alert.alert('Error', 'No route found.');
+        return;
+      }
+
+      const decodedPolyline = PolylineDecoder.decode(route.overview_polyline).map(
+        ([lat, lng]) => ({ latitude: lat, longitude: lng })
+      );
+
+      const coordinates = route.legs?.[0]?.steps?.flatMap((step) => [
+        {
+          latitude: step.start_location.lat,
+          longitude: step.start_location.lng,
+        },
+        {
+          latitude: step.end_location.lat,
+          longitude: step.end_location.lng,
+        },
+      ]);
+
+      const totalDistance = route.legs?.reduce((sum, leg) => sum + (leg.distance || 0), 0) || 0;
+      const totalDuration = route.legs?.reduce((sum, leg) => sum + (leg.duration || 0), 0) || 0;
+
+      const distance = `${(totalDistance / 1000).toFixed(1)} km`;
+      const duration = `${Math.ceil(totalDuration / 60)} mins`;
+
+      setRouteData({
+        polyline: decodedPolyline,
+        distance,
+        duration,
+        coordinates,
+      });
+    } catch (err) {
+      console.error('Error fetching route:', err);
+      Alert.alert('Error', 'Failed to fetch route.');
+    }
+  };
+
   const renderMarkers = () => {
     const markers = [];
 
@@ -192,6 +209,7 @@ const fetchRoute = async () => {
 
   return (
     <View style={styles.container}>
+      {/* Top Autocomplete Inputs */}
       <View style={styles.autocompleteWrapper}>
         <Text style={styles.heading}>Pickup</Text>
         <OlaPlacesAutocomplete
@@ -231,6 +249,7 @@ const fetchRoute = async () => {
         </View>
       </View>
 
+      {/* Map */}
       <MapView
         style={styles.map}
         initialRegion={{
@@ -242,14 +261,15 @@ const fetchRoute = async () => {
       >
         {renderMarkers()}
         {routeData?.polyline && (
-          <Polyline coordinates={routeData.polyline} strokeColor="#000" strokeWidth={3} />
+          <Polyline coordinates={routeData.polyline} strokeColor="#007AFF" strokeWidth={4} />
         )}
       </MapView>
 
+      {/* Distance & Duration Box */}
       {routeData && (
         <View style={styles.routeDetails}>
-          <Text style={styles.routeText}>Distance: {routeData.distance}</Text>
-          <Text style={styles.routeText}>Duration: {routeData.duration}</Text>
+          <Text style={styles.routeText}>🛣 Distance: {routeData.distance}</Text>
+          <Text style={styles.routeText}>⏱ Duration: {routeData.duration}</Text>
         </View>
       )}
     </View>
@@ -314,14 +334,21 @@ const styles = StyleSheet.create({
   routeDetails: {
     position: 'absolute',
     bottom: 20,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    padding: 12,
-    borderRadius: 8,
+    left: 20,
+    right: 20,
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 12,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
   },
   routeText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+    marginVertical: 2,
   },
 });
 
