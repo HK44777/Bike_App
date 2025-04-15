@@ -8,11 +8,11 @@ import {
   StyleSheet,
   Keyboard,
   Modal,
-  Share,
 } from 'react-native';
+import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
+import PolylineDecoder from '@mapbox/polyline';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router'; // For navigation
 
 // 🔐 Your Ola Maps API Key
 const OLA_API_KEY = 'CornDpxoVHMISlbCN8ePrPdauyrHDeIBZotfvRdy';
@@ -38,18 +38,19 @@ const formatDuration = (durationSec) => {
   }
 };
 
-// Reusable autocomplete component
 const OlaPlacesAutocomplete = ({
   placeholder,
   onSelect,
   clearPickupRef,
   initialValue = '',
 }) => {
+  // Manage input value, suggestions, and a flag to track selection.
   const [input, setInput] = useState(initialValue);
   const [suggestions, setSuggestions] = useState([]);
   const [hasSelected, setHasSelected] = useState(false);
   const inputRef = useRef(null);
 
+  // Update input and set selection flag if initialValue changes.
   useEffect(() => {
     setInput(initialValue);
     if (initialValue && initialValue.trim().length > 0) {
@@ -57,6 +58,7 @@ const OlaPlacesAutocomplete = ({
     }
   }, [initialValue]);
 
+  // For pickup, assign clear function reference if provided.
   useEffect(() => {
     if (placeholder.toLowerCase().includes('pickup') && clearPickupRef) {
       clearPickupRef.current = () => {
@@ -66,11 +68,13 @@ const OlaPlacesAutocomplete = ({
     }
   }, [clearPickupRef, placeholder]);
 
+  // Fetch suggestions only if the user is typing and no selection was made.
   useEffect(() => {
     if (hasSelected) {
       setSuggestions([]);
       return;
     }
+
     const fetchSuggestions = async () => {
       if (input.length < 3) {
         setSuggestions([]);
@@ -81,11 +85,14 @@ const OlaPlacesAutocomplete = ({
           `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(
             input
           )}&api_key=${OLA_API_KEY}`,
-          { headers: { 'X-Request-Id': 'sample-request-id' } }
+          {
+            headers: { 'X-Request-Id': 'sample-request-id' },
+          }
         );
         const contentType = response.headers.get('Content-Type');
         const isJson = contentType && contentType.includes('application/json');
         const text = await response.text();
+
         if (isJson) {
           const json = JSON.parse(text);
           const results = json?.predictions || [];
@@ -99,6 +106,7 @@ const OlaPlacesAutocomplete = ({
         setSuggestions([]);
       }
     };
+
     const debounce = setTimeout(fetchSuggestions, 400);
     return () => clearTimeout(debounce);
   }, [input, hasSelected]);
@@ -115,6 +123,7 @@ const OlaPlacesAutocomplete = ({
             setInput(text);
             setHasSelected(false);
           }}
+          // Force the visible selection to the beginning when a selection is made.
           selection={hasSelected ? { start: 0, end: 0 } : undefined}
         />
         {input.length > 0 && (
@@ -123,6 +132,7 @@ const OlaPlacesAutocomplete = ({
             onPress={() => {
               setInput('');
               setHasSelected(false);
+              // Dismiss the keyboard if open.
               Keyboard.dismiss();
             }}
           >
@@ -141,6 +151,7 @@ const OlaPlacesAutocomplete = ({
                 setInput(selectedText);
                 setSuggestions([]);
                 setHasSelected(true);
+                // Blur the input to dismiss suggestions.
                 inputRef.current && inputRef.current.blur();
                 Keyboard.dismiss();
                 onSelect({
@@ -159,31 +170,39 @@ const OlaPlacesAutocomplete = ({
   );
 };
 
-const LocationInputScreen = () => {
+const MapScreenOla = () => {
   const [pickup, setPickup] = useState(null);
   const [destination, setDestination] = useState(null);
   const [stops, setStops] = useState([]);
   const [showStopInput, setShowStopInput] = useState(false);
-  const [routeDetails, setRouteDetails] = useState(null);
-  const [isRouteModalVisible, setIsRouteModalVisible] = useState(false);
-  const [generatedCode, setGeneratedCode] = useState(null);
+  const [routeData, setRouteData] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [heading, setHeading] = useState(0);
+  const [isSearchCollapsed, setIsSearchCollapsed] = useState(false);
 
-  // Custom Alert state
+  // State for custom alert
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertTitle, setAlertTitle] = useState('');
   const [alertMessage, setAlertMessage] = useState('');
 
-  // For clearing pickup input if necessary.
   const clearPickupRef = useRef(null);
+  const mapRef = useRef(null);
+  const userLocationAnim = useRef(
+    new AnimatedRegion({
+      latitude: 0,
+      longitude: 0,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    })
+  ).current;
 
-  // Helper to show our custom alert
+  // Helper to show custom alert
   const showAlert = (title, message) => {
     setAlertTitle(title);
     setAlertMessage(message);
     setAlertVisible(true);
   };
 
-  // Get user's current location to pre-fill pickup
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -192,7 +211,11 @@ const LocationInputScreen = () => {
         return;
       }
       const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
+      const { latitude, longitude, heading } = location.coords;
+      setUserLocation({ latitude, longitude });
+      setHeading(heading || 0);
+      userLocationAnim.setValue({ latitude, longitude });
+
       if (!pickup) {
         setPickup({
           latitude,
@@ -200,6 +223,25 @@ const LocationInputScreen = () => {
           description: 'Current Location',
         });
       }
+
+      Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 3000,
+          distanceInterval: 10,
+        },
+        (loc) => {
+          const { latitude, longitude, heading } = loc.coords;
+          setUserLocation({ latitude, longitude });
+          setHeading(heading || 0);
+          userLocationAnim.timing({
+            latitude,
+            longitude,
+            duration: 1000,
+            useNativeDriver: false,
+          }).start();
+        }
+      );
     })();
   }, []);
 
@@ -211,21 +253,55 @@ const LocationInputScreen = () => {
     setStops((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  // Compute route details and display them in a modal.
-  const handleShowDetails = async () => {
+  // Computes a map region that bounds all the points (with added padding).
+  const computeRegionForCoordinates = (points) => {
+    const lats = points.map((p) => p.latitude);
+    const lngs = points.map((p) => p.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+
+    const midLat = (minLat + maxLat) / 2;
+    const midLng = (minLng + maxLng) / 2;
+    const latDelta = (maxLat - minLat) * 1.5 || 0.01;
+    const lngDelta = (maxLng - minLng) * 1.5 || 0.01;
+
+    return {
+      latitude: midLat,
+      longitude: midLng,
+      latitudeDelta: latDelta,
+      longitudeDelta: lngDelta,
+    };
+  };
+
+  const fetchRoute = async () => {
     if (!destination) {
       showAlert('Error', 'Please select a destination.');
       return;
     }
-    if (!pickup || !pickup.description?.trim()) {
-      showAlert('Error', 'Pickup location is required.');
-      return;
+
+    let finalPickup = pickup;
+    if (!pickup || !pickup.description || pickup.description.trim() === '') {
+      if (userLocation) {
+        finalPickup = {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          description: 'Current Location',
+        };
+        setPickup(finalPickup);
+      } else {
+        showAlert('Error', 'Current location not available.');
+        return;
+      }
     }
+
     try {
-      const allLocations = [pickup, ...stops, destination];
+      const allLocations = [finalPickup, ...stops, destination];
       const locationStr = allLocations
         .map((loc) => `${loc.latitude},${loc.longitude}`)
         .join('|');
+
       const response = await fetch(
         `https://api.olamaps.io/routing/v1/routeOptimizer?locations=${locationStr}&api_key=${OLA_API_KEY}`,
         {
@@ -233,117 +309,128 @@ const LocationInputScreen = () => {
           headers: { 'X-Request-Id': 'request-id-123' },
         }
       );
+
       const json = await response.json();
       const route = json?.routes?.[0];
-      if (!route) {
+
+      if (!route?.overview_polyline) {
         showAlert('Error', 'No route found.');
         return;
       }
+
+      const decodedPolyline = PolylineDecoder.decode(route.overview_polyline).map(
+        ([lat, lng]) => ({ latitude: lat, longitude: lng })
+      );
+
       const totalDistance =
         route.legs?.reduce((sum, leg) => sum + (leg.distance || 0), 0) || 0;
       const totalDuration =
         route.legs?.reduce((sum, leg) => sum + (leg.duration || 0), 0) || 0;
+
       const distance = `${(totalDistance / 1000).toFixed(1)} km`;
       const duration = formatDuration(totalDuration);
-      setRouteDetails({ distance, duration });
-      setIsRouteModalVisible(true);
-    } catch (error) {
-      console.error('Error fetching route details:', error);
-      showAlert('Error', 'Failed to fetch route details.');
+
+      setRouteData({
+        polyline: decodedPolyline,
+        distance,
+        duration,
+      });
+
+      // Auto-collapse the search panel.
+      setIsSearchCollapsed(true);
+
+      // Animate the map to focus on the route.
+      if (decodedPolyline.length > 0 && mapRef.current) {
+        const region = computeRegionForCoordinates(decodedPolyline);
+        mapRef.current.animateToRegion(region, 1000);
+      }
+    } catch (err) {
+      console.error('Error fetching route:', err);
+      showAlert('Error', 'Failed to fetch route.');
     }
   };
 
-  // Generate a random 6-digit code.
-  const handleGenerateCode = () => {
-    if (!destination) {
-      showAlert('Error', 'Destination has not been set.');
-      return;
-    }
-    if (!routeDetails) {
-      showAlert(
-        'Error',
-        'Route details have not been computed yet. Please click "Show Details" first.'
+  const renderMarkers = () => {
+    const markers = [];
+
+    if (pickup) {
+      markers.push(
+        <Marker
+          key="pickup"
+          coordinate={{ latitude: pickup.latitude, longitude: pickup.longitude }}
+          title="Pickup"
+          pinColor="green"
+        />
       );
-      return;
     }
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedCode(code);
-  };
 
-  // Share the generated code via the native share dialog.
-  const handleShareCode = async () => {
-    if (!generatedCode) return;
-    try {
-      await Share.share({ message: `Your ride code is: ${generatedCode}` });
-    } catch (error) {
-      console.error('Error sharing code:', error);
-    }
-  };
-
-  // Handle Start Ride: validate and navigate to the Start Ride page.
-  const handleStartRide = () => {
-    if (!destination) {
-      showAlert('Error', 'Destination has not been set.');
-      return;
-    }
-    if (!routeDetails) {
-      showAlert(
-        'Error',
-        'Route details have not been computed yet. Please click "Show Details" first.'
+    if (destination) {
+      markers.push(
+        <Marker
+          key="destination"
+          coordinate={{
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+          }}
+          title="Destination"
+          pinColor="red"
+        />
       );
-      return;
     }
-    // Navigate to the Start Ride page (adjust the route as needed)
-    router.push('/travel');
+
+    stops.forEach((stop, index) => {
+      markers.push(
+        <Marker
+          key={`stop-${index}`}
+          coordinate={{
+            latitude: stop.latitude,
+            longitude: stop.longitude,
+          }}
+          title={`Stop ${index + 1}`}
+          pinColor="orange"
+        />
+      );
+    });
+
+    return markers;
   };
 
   return (
     <View style={styles.container}>
-      {/* Header Row */}
-      <View style={styles.headerContainer}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.push('/home')}
-        >
-          <Ionicons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Set your ride</Text>
-      </View>
+      {/* Collapsible search panel */}
+      {!isSearchCollapsed && (
+        <View style={styles.autocompleteWrapper}>
+          <Text style={styles.heading}>Source</Text>
+          <OlaPlacesAutocomplete
+            placeholder="Enter source location"
+            onSelect={setPickup}
+            clearPickupRef={clearPickupRef}
+            initialValue={pickup?.description || ''}
+          />
 
-      {/* Main Input Panel */}
-      <View style={styles.autocompleteWrapper}>
-        <Text style={styles.heading}>Source</Text>
-        <OlaPlacesAutocomplete
-          placeholder="Enter starting location"
-          onSelect={setPickup}
-          clearPickupRef={clearPickupRef}
-          initialValue={pickup?.description || ''}
-        />
+          <Text style={styles.heading}>Destination</Text>
+          <OlaPlacesAutocomplete
+            placeholder="Enter final location"
+            onSelect={setDestination}
+            initialValue={destination?.description || ''}
+          />
 
-        <Text style={styles.heading}>Destination</Text>
-        <OlaPlacesAutocomplete
-          placeholder="Enter final location"
-          onSelect={setDestination}
-          initialValue={destination?.description || ''}
-        />
+          <Text style={styles.heading}>Stops (optional)</Text>
+          {stops.map((stop, index) => (
+            <View key={index} style={styles.stopContainer}>
+              <Text style={styles.stopText}>
+                Stop {index + 1}: {stop.description}
+              </Text>
+              <TouchableOpacity
+                onPress={() => removeStop(index)}
+                style={styles.stopCancelButton}
+              >
+                <Ionicons name="close-circle-outline" size={20} color="black" />
+              </TouchableOpacity>
+            </View>
+          ))}
 
-        <Text style={styles.heading}>Stops (optional)</Text>
-        {stops.map((stop, index) => (
-          <View key={index} style={styles.stopContainer}>
-            <Text style={styles.stopText}>
-              Stop {index + 1}: {stop.description}
-            </Text>
-            <TouchableOpacity
-              onPress={() => removeStop(index)}
-              style={styles.stopCancelButton}
-            >
-              <Ionicons name="close-circle-outline" size={20} color="black" />
-            </TouchableOpacity>
-          </View>
-        ))}
-
-        {showStopInput ? (
-          <>
+          {showStopInput ? (
             <OlaPlacesAutocomplete
               placeholder="Enter stop location"
               onSelect={(place) => {
@@ -352,89 +439,78 @@ const LocationInputScreen = () => {
               }}
               initialValue={''}
             />
+          ) : (
             <TouchableOpacity
-              style={styles.cancelStopButton}
-              onPress={() => setShowStopInput(false)}
+              style={styles.addStopButton}
+              onPress={() => setShowStopInput(true)}
             >
-              <Text style={styles.cancelStopText}>Cancel</Text>
+              <Text style={styles.addStopText}>+ Add a Stop</Text>
             </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity
-            style={styles.addStopButton}
-            onPress={() => setShowStopInput(true)}
-          >
-            <Text style={styles.addStopText}>+ Add a Stop</Text>
-          </TouchableOpacity>
-        )}
+          )}
 
-        {/* Show Details Button */}
-        <TouchableOpacity
-          style={styles.showDetailsButton}
-          onPress={handleShowDetails}
-        >
-          <Text style={styles.showDetailsButtonText}>Show Details</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Combined Code Generation and Start Ride Section */}
-      <View style={styles.actionContainer}>
-        {generatedCode ? (
-          <View style={styles.codeContainer}>
-            <Text style={styles.generatedCodeText}>{generatedCode}</Text>
-            <TouchableOpacity
-              style={styles.shareButton}
-              onPress={handleShareCode}
-            >
-              <Text style={styles.shareButtonText}>Share</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.generateCodeButton}
-            onPress={handleGenerateCode}
-          >
-            <Text style={styles.generateCodeText}>Generate Code</Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.startRideButton}
-          onPress={handleStartRide}
-        >
-          <Text style={styles.startRideText}>Start Ride</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Modal to Display Route Details */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isRouteModalVisible}
-        onRequestClose={() => setIsRouteModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalHeading}>Route Details</Text>
-            {routeDetails && (
-              <>
-                <Text style={styles.modalText}>
-                  Distance: {routeDetails.distance}
-                </Text>
-                <Text style={styles.modalText}>
-                  Duration: {routeDetails.duration}
-                </Text>
-              </>
-            )}
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setIsRouteModalVisible(false)}
-            >
-              <Text style={styles.modalCloseButtonText}>Close</Text>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.routeButton} onPress={fetchRoute}>
+              <Text style={styles.routeButtonText}>Show Route</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      )}
+
+      {/* Button to re-open search panel when collapsed */}
+      {isSearchCollapsed && (
+        <TouchableOpacity
+          style={styles.showButton}
+          onPress={() => setIsSearchCollapsed(false)}
+        >
+          <Text style={styles.showButtonText}>Show Search Panel</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Fullscreen Map */}
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        initialRegion={{
+          latitude: pickup?.latitude || 12.9716,
+          longitude: pickup?.longitude || 77.5946,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        }}
+      >
+        {renderMarkers()}
+        {userLocation && (
+          <Marker.Animated
+            coordinate={userLocationAnim}
+            anchor={{ x: 0.5, y: 0.5 }}
+            style={{ transform: [{ rotate: `${heading}deg` }] }}
+          >
+            <View
+              style={{
+                width: 20,
+                height: 20,
+                backgroundColor: 'blue',
+                borderRadius: 10,
+                borderWidth: 2,
+                borderColor: '#fff',
+              }}
+            />
+          </Marker.Animated>
+        )}
+        {routeData?.polyline && (
+          <Polyline
+            coordinates={routeData.polyline}
+            strokeColor="#007AFF"
+            strokeWidth={4}
+          />
+        )}
+      </MapView>
+
+      {routeData && (
+        <View style={styles.routeDetails}>
+          <Text style={styles.routeText}>Distance: {routeData.distance}</Text>
+          <Text style={styles.routeText}>Duration: {routeData.duration}</Text>
+        </View>
+      )}
 
       {/* Custom Alert Modal */}
       <Modal
@@ -459,49 +535,26 @@ const LocationInputScreen = () => {
   );
 };
 
-export default LocationInputScreen;
+export default MapScreenOla;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
-  // Header styles
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-  },
-  backButton: {
-    marginRight: -15,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    textAlign: 'center',
-    fontWeight: '650',
-    fontFamily: 'Poppins',
-  },
-  // Autocomplete and input styles
   autocompleteWrapper: {
-    marginTop: 20,
-    marginHorizontal: 10,
+    position: 'absolute',
+    top: 40,
+    left: 10,
+    right: 10,
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 15,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
+    padding: 10,
+    zIndex: 10,
   },
   heading: {
     fontFamily: 'Poppins',
     fontWeight: '600',
     marginVertical: 5,
-    fontSize: 16,
   },
   autocompleteContainer: {
     marginVertical: 5,
@@ -521,6 +574,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginVertical: 5,
     borderRadius: 10,
+    textAlign: 'left',
   },
   clearButton: {
     marginRight: 5,
@@ -532,27 +586,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   addStopButton: {
+    fontFamily: 'Poppins',
     backgroundColor: 'black',
     padding: 10,
     borderRadius: 10,
     marginVertical: 5,
   },
   addStopText: {
+    fontFamily: 'Poppins',
     color: '#fff',
     textAlign: 'center',
-    fontFamily: 'Poppins',
-  },
-  cancelStopButton: {
-    backgroundColor: '#ccc',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignSelf: 'center',
-    marginVertical: 5,
-  },
-  cancelStopText: {
-    color: '#000',
-    fontFamily: 'Poppins',
   },
   stopContainer: {
     flexDirection: 'row',
@@ -562,129 +605,68 @@ const styles = StyleSheet.create({
   },
   stopText: {
     fontSize: 14,
-    fontFamily: 'Poppins',
   },
   stopCancelButton: {
     marginLeft: 10,
   },
-  showDetailsButton: {
-    backgroundColor: 'black',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-    marginTop: 15,
-  },
-  showDetailsButtonText: {
-    color: '#fff',
+  buttonContainer: {
     fontFamily: 'Poppins',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+    backgroundColor: 'black',
+    marginVertical: 10,
+    borderRadius: 10,
   },
-  // Combined action container for code and start ride
-  actionContainer: {
-    marginTop: 20,
-    marginHorizontal: 10,
-    alignItems: 'center',
-  },
-  generateCodeButton: {
+  routeButton: {
     backgroundColor: 'black',
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 10,
-    width: '50%',
-    alignSelf: 'center',
-    marginBottom: 15,
   },
-  generateCodeText: {
+  routeButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
     fontFamily: 'Poppins',
     textAlign: 'center',
   },
-  codeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 15,
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
-  generatedCodeText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    fontFamily: 'Poppins',
-    marginRight: 20,
-  },
-  shareButton: {
-    backgroundColor: 'black',
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-  },
-  shareButtonText: {
-    color: '#fff',
-    fontFamily: 'Poppins',
-    fontWeight: '600',
-  },
-  startRideButton: {
-    backgroundColor: 'black',marginTop: 15,
-    marginHorizontal: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-    width: '50%',
-    alignSelf: 'center',
+  routeDetails: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 12,
     elevation: 5,
     shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
+    zIndex: 5,
   },
-  startRideText: {
-    color: '#fff',
+  routeText: {
+    fontFamily: 'Poppins',
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins',
-    textAlign: 'center',
+    marginVertical: 2,
   },
-  // Modal for route details
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  modalContent: {
+  showButton: {
+    position: 'absolute',
+    top: 40,
+    left: 10,
+    right: 10,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 30,
-    width: '100%',
+    borderRadius: 10,
+    padding: 10,
+    zIndex: 10,
     alignItems: 'center',
   },
-  modalHeading: {
-    fontSize: 18,
+  showButtonText: {
+    fontFamily: 'Poppins',
+    color: 'black',
     fontWeight: '600',
-    fontFamily: 'Poppins',
-    marginBottom: 20,
-  },
-  modalText: {
-    fontSize: 16,
-    fontFamily: 'Poppins',
-    fontWeight: '800',
-    marginVertical: 8,
-  },
-  modalCloseButton: {
-    marginTop: 25,
-    backgroundColor: 'black',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-  },
-  modalCloseButtonText: {
-    color: '#fff',
-    fontFamily: 'Poppins',
-    fontSize: 14,
   },
   // Custom Alert styles
   alertOverlay: {

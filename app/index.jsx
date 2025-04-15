@@ -9,10 +9,10 @@ import {
   TextInput,
   Animated,
 } from 'react-native';
-import img1 from "@/assets/images/icon.png"
-import img2 from "@/assets/images/adaptive-icon.png"
-import img3 from '@/assets/images/react-logo.png'
-import img4 from '@/assets/images/splash-icon.png'
+import img1 from "@/assets/images/icon.png";
+import img2 from "@/assets/images/adaptive-icon.png";
+import img3 from '@/assets/images/react-logo.png';
+import img4 from '@/assets/images/splash-icon.png';
 import { router } from 'expo-router';
 
 const SplashScreen = () => {
@@ -33,9 +33,9 @@ const SplashScreen = () => {
     setModalVisible(true);
   };
 
-const handleContinue = () => {
-    setModalVisible(false); // Close the modal
-    // Wait for the modal to close (adjust delay as needed) then navigate
+  const handleContinue = () => {
+    setModalVisible(false);
+    // Delay navigation until after the modal closes
     setTimeout(() => {
       router.push('/home');
     }, 300);
@@ -43,39 +43,33 @@ const handleContinue = () => {
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* App Logo and Tagline */}
+      {/* App Logo */}
       <Image source={img1} style={styles.logo} />
+      
+      {/* Tagline */}
       <Text style={styles.tagline}>Ride Smart. Ride Together.</Text>
-
-      {/* Display App Features */}
-      <View style={styles.featuresContainer}>
-        <View style={styles.featureItem}>
-          <Image
-            source={img2}
-            style={styles.featureIcon}
-          />
-          <Text style={styles.featureText}>Real-Time Tracking</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Image
-            source={img3}
-            style={styles.featureIcon}
-          />
-          <Text style={styles.featureText}>Group Coordination</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Image
-            source={img4}
-            style={styles.featureIcon}
-          />
-          <Text style={styles.featureText}>Safety Alerts</Text>
-        </View>
-      </View>
-
+      
       {/* Get Started Button */}
       <TouchableOpacity style={styles.getStartedButton} onPress={handleGetStarted}>
         <Text style={styles.getStartedButtonText}>Get Started</Text>
       </TouchableOpacity>
+
+      {/* App Features in Vertical Stack */}
+      <View style={styles.featuresContainer}>
+        <View style={styles.featureItem}>
+          <Image source={img2} style={styles.featureIcon} />
+          <Text style={styles.featureText}>Real-Time Tracking</Text>
+        </View>
+        <View style={styles.featureItem}>
+          <Image source={img3} style={styles.featureIcon} />
+          <Text style={styles.featureText}>Group Coordination</Text>
+        </View>
+        <View style={styles.featureItem}>
+          <Image source={img4} style={styles.featureIcon} />
+          <Text style={styles.featureText}>Safety Alerts</Text>
+        </View>
+      </View>
+
 
       {/* Modal for Name Input */}
       <Modal
@@ -86,20 +80,17 @@ const handleContinue = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Welcome!</Text>
+            <Text style={styles.modalTitle}>Enter name</Text>
             <TextInput
               placeholder="Enter your name"
               value={name}
               onChangeText={setName}
               style={styles.input}
+              placeholderTextColor="#888"
             />
-            <TouchableOpacity
-  style={styles.modalButton}
-  onPress={handleContinue}
->
-  <Text style={styles.modalButtonText}>Continue</Text>
-</TouchableOpacity>
-
+            <TouchableOpacity style={styles.modalButton} onPress={handleContinue}>
+              <Text style={styles.modalButtonText}>Continue</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -110,33 +101,35 @@ const handleContinue = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff', // Customize as needed
+    backgroundColor: '#fff', // White background
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
   logo: {
-    width: 150,
-    height: 150,
+    width: 120,
+    height: 120,
     marginBottom: 20,
     resizeMode: 'contain',
   },
   tagline: {
-    fontSize: 24,
+    fontFamily: 'Poppins',
+    fontSize: 20,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 30,
+    color: '#000',
     textAlign: 'center',
+    marginBottom: 50,
   },
   featuresContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: 'column', // Vertical stack of features
+    alignItems: 'center',
     width: '100%',
+    marginTop:20,
     marginBottom: 30,
   },
   featureItem: {
     alignItems: 'center',
-    width: '30%',
+    marginBottom: 20,
   },
   featureIcon: {
     width: 50,
@@ -145,20 +138,28 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   featureText: {
-    fontSize: 14,
+    fontFamily: 'Poppins',
+    fontSize: 16,
+    color: '#000',
     textAlign: 'center',
-    color: '#555',
   },
   getStartedButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#000', // Black button background
     paddingVertical: 12,
     paddingHorizontal: 30,
-    borderRadius: 25,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 20,
   },
   getStartedButtonText: {
-    color: '#fff',
+    fontFamily: 'Poppins',
     fontSize: 18,
     fontWeight: '600',
+    color: '#fff', // White text
   },
   modalOverlay: {
     flex: 1,
@@ -172,11 +173,18 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 10,
     alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontFamily: 'Poppins',
+    fontSize: 18,
+    fontWeight: '400',
     marginBottom: 20,
+    color: '#000',
   },
   input: {
     width: '100%',
@@ -186,16 +194,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     marginBottom: 20,
+    fontFamily: 'Poppins',
+    color: '#000',
   },
   modalButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#000', // Black button
     paddingVertical: 10,
     paddingHorizontal: 25,
-    borderRadius: 5,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   modalButtonText: {
-    color: '#fff',
+    fontFamily: 'Poppins',
     fontSize: 16,
+    color: '#fff', // White text
   },
 });
 
