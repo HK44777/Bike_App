@@ -13,6 +13,7 @@ import {
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router'; // For navigation
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 🔐 Your Ola Maps API Key
 const OLA_API_KEY = 'CornDpxoVHMISlbCN8ePrPdauyrHDeIBZotfvRdy';
@@ -280,21 +281,29 @@ const LocationInputScreen = () => {
     }
   };
 
-  // Handle Start Ride: validate and navigate to the Start Ride page.
-  const handleStartRide = () => {
-    if (!destination) {
-      showAlert('Error', 'Destination has not been set.');
-      return;
-    }
-    if (!routeDetails) {
-      showAlert(
-        'Error',
-        'Route details have not been computed yet. Please click "Show Details" first.'
-      );
-      return;
-    }
-    // Navigate to the Start Ride page (adjust the route as needed)
-    router.push('/travel');
+  const saveRideCoordinates = async () => {
+    if (pickup && destination) {
+      try {
+        if (!destination) {
+          showAlert('Error', 'Destination has not been set.');
+          return;
+        }
+        if (!routeDetails) {
+          showAlert(
+            'Error',
+            'Route details have not been computed yet. Please click "Show Details" first.'
+          );
+          return;
+        }
+        // Save pickup and destination coordinates to AsyncStorage
+        await AsyncStorage.setItem('pickup', JSON.stringify(pickup));
+        await AsyncStorage.setItem('destination', JSON.stringify(destination));
+        console.log('Coordinates saved successfully!');
+      } 
+      catch (error) {
+        console.error('Error saving coordinates to AsyncStorage:', error);
+      }
+    } router.push('/travel');
   };
 
   return (
@@ -400,7 +409,7 @@ const LocationInputScreen = () => {
 
         <TouchableOpacity
           style={styles.startRideButton}
-          onPress={handleStartRide}
+          onPress={saveRideCoordinates}
         >
           <Text style={styles.startRideText}>Start Ride</Text>
         </TouchableOpacity>
@@ -459,7 +468,7 @@ const LocationInputScreen = () => {
   );
 };
 
-export default LocationInputScreen;
+
 
 const styles = StyleSheet.create({
   container: {
@@ -722,4 +731,128 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Poppins',
   },
+  generateCodeButton: {
+    backgroundColor: 'black',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 10,
+    marginVertical: 10,
+  },
+  generateCodeText: {
+    color: '#fff',
+    fontFamily: 'Poppins',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  codeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 10,
+  },
+  generatedCodeText: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontFamily: 'Poppins',
+    marginRight: 10,
+  },
+  shareButton: {
+    backgroundColor: '#1E90FF',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 10,
+  },
+  shareButtonText: {
+    color: '#fff',
+    fontFamily: 'Poppins',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  startRideButton: {
+    backgroundColor: 'green',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 10,
+    marginTop: 15,
+  },
+  startRideText: {
+    color: '#fff',
+    fontFamily: 'Poppins',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalHeading: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontFamily: 'Poppins',
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 16,
+    fontFamily: 'Poppins',
+    marginBottom: 5,
+  },
+  modalCloseButton: {
+    marginTop: 20,
+    backgroundColor: '#1E90FF',
+    paddingVertical: 10,
+    paddingHorizontal: 30,
+    borderRadius: 10,
+  },
+  modalCloseButtonText: {
+    color: '#fff',
+    fontFamily: 'Poppins',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  alertOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  alertContainer: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    alignItems: 'center',
+  },
+  alertMessage: {
+    fontSize: 16,
+    fontFamily: 'Poppins',
+    marginBottom: 20,
+  },
+  alertButton: {
+    backgroundColor: '#FF6347',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  alertButtonText: {
+    color: '#fff',
+    fontFamily: 'Poppins',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });
+
+export default LocationInputScreen;
